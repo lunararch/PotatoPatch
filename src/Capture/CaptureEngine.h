@@ -40,6 +40,9 @@ public:
     bool IsReady() const;
     
     int GetSelectedMonitor() const { return m_selectedMonitor; }
+    
+    // Get desktop duplication for overlay system
+    DesktopDuplication* GetDesktopDuplication() { return m_desktopDuplication.get(); }
 
 private:
     D3D12Context* m_context = nullptr;

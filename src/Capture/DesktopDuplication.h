@@ -39,6 +39,10 @@ public:
     // Get the captured frame as D3D11 texture
     ID3D11Texture2D* GetCapturedTexture() { return m_capturedTexture.Get(); }
     
+    // Get D3D11 device (for creating shared resources)
+    ID3D11Device* GetD3D11Device() { return m_d3d11Device.Get(); }
+    ID3D11DeviceContext* GetD3D11Context() { return m_d3d11Context.Get(); }
+    
     // Get dimensions
     uint32_t GetWidth() const { return m_width; }
     uint32_t GetHeight() const { return m_height; }

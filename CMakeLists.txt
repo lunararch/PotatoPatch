@@ -19,6 +19,8 @@ set(SOURCES
         src/Processing/FrameGenerator.cpp
         src/Processing/GPUProcessor.cpp
         src/Display/DisplayManager.cpp
+        src/Display/OverlayRenderer.cpp
+        src/Display/OverlayWindow.cpp
         src/UI/ImGuiLayer.cpp
         src/Utils/Logger.cpp
         src/Utils/Timer.cpp
@@ -35,6 +37,8 @@ set(HEADERS
         src/Processing/FrameGenerator.h
         src/Processing/GPUProcessor.h
         src/Display/DisplayManager.h
+        src/Display/OverlayRenderer.h
+        src/Display/OverlayWindow.h
         src/UI/ImGuiLayer.h
         src/Utils/Logger.h
         src/Utils/Timer.h

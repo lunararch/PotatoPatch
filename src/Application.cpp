@@ -20,6 +20,7 @@ bool Application::Initialize(HINSTANCE hInstance, uint32_t width, uint32_t heigh
 {
     m_windowWidth = width;
     m_windowHeight = height;
+    m_hInstance = hInstance;
 
     // Register window class
     WNDCLASSEXW wc = {};
@@ -86,6 +87,10 @@ bool Application::Initialize(HINSTANCE hInstance, uint32_t width, uint32_t heigh
     m_ui = std::make_unique<ImGuiLayer>();
     m_ui->Initialize(m_hwnd, m_context.get());
 
+    // Initialize overlay window system
+    m_overlay = std::make_unique<OverlayWindow>();
+    m_overlay->Initialize(hInstance);
+
     m_running = true;
     m_timer.Start();
 
@@ -108,6 +113,7 @@ void Application::Run()
 
 void Application::Shutdown()
 {
+    if (m_overlay) m_overlay->Shutdown();
     if (m_ui) m_ui->Shutdown();
     if (m_display) m_display->Shutdown();
     if (m_upscaler) m_upscaler->Shutdown();
@@ -126,19 +132,23 @@ void Application::Shutdown()
 void Application::ProcessFrame()
 {
     try {
+        // If overlay mode is active, process overlay frames
+        if (m_overlayMode && m_overlay && m_overlay->IsActive())
+        {
+            m_overlay->ProcessFrame();
+            m_capturedFrames = m_overlay->GetFramesCaptured();
+        }
+        
         m_context->BeginFrame();
 
         ID3D12Resource* finalTexture = nullptr;
 
-    // Capture monitor if enabled and monitor is selected
-    if (m_captureEnabled && m_selectedMonitor >= 0 && m_capture->IsReady())
+    // Regular capture mode (non-overlay) - just counts frames
+    if (m_captureEnabled && !m_overlayMode && m_selectedMonitor >= 0 && m_capture->IsReady())
     {
         if (m_capture->CaptureFrame())
         {
             m_capturedFrames++;
-            
-            // TODO: Get D3D11 texture and convert to D3D12
-            // For now, finalTexture remains nullptr (no display)
         }
     }
 
@@ -301,7 +311,57 @@ void Application::RenderUI()
         }
     }
 
-    ImGui::Checkbox("Enable Capture", &m_captureEnabled);
+    ImGui::Separator();
+    
+    // OVERLAY MODE - the main feature!
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    if (ImGui::CollapsingHeader("Overlay Mode (Like Lossless Scaling)", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::PopStyleColor();
+        
+        if (!m_overlayMode)
+        {
+            bool canStart = m_targetWindow && IsWindow(m_targetWindow) && m_selectedMonitor >= 0;
+            
+            if (!canStart)
+            {
+                ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "Select a window first (use 'List All Windows')");
+            }
+            
+            ImGui::BeginDisabled(!canStart);
+            if (ImGui::Button("START OVERLAY", ImVec2(200, 40)))
+            {
+                StartOverlayMode();
+            }
+            ImGui::EndDisabled();
+            
+            ImGui::TextWrapped("This will capture the screen and display it in a borderless window on top of your game.");
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            if (ImGui::Button("STOP OVERLAY", ImVec2(200, 40)))
+            {
+                StopOverlayMode();
+            }
+            ImGui::PopStyleColor();
+            
+            ImGui::Text("Overlay FPS: %.0f", m_overlay ? m_overlay->GetOverlayFPS() : 0.0f);
+            ImGui::Text("Frames Rendered: %u", m_capturedFrames);
+            
+            ImGui::TextColored(ImVec4(0, 1, 0, 1), "Overlay is ACTIVE!");
+            ImGui::TextWrapped("Press ESC or click 'STOP OVERLAY' to stop.");
+        }
+    }
+    else
+    {
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::Separator();
+
+    // Legacy capture mode (just counts frames, no display)
+    ImGui::Checkbox("Enable Basic Capture (no display)", &m_captureEnabled);
 
     ImGui::Separator();
 
@@ -341,6 +401,54 @@ void Application::RenderUI()
         Logger::Error("RenderUI exception: %s", e.what());
         m_running = false;
     }
+}
+
+void Application::StartOverlayMode()
+{
+    if (!m_targetWindow || !IsWindow(m_targetWindow))
+    {
+        Logger::Error("Cannot start overlay: no target window selected");
+        return;
+    }
+    
+    if (!m_capture || !m_capture->IsReady())
+    {
+        Logger::Error("Cannot start overlay: capture not ready. Select a monitor first.");
+        return;
+    }
+    
+    // Get desktop duplication from capture engine
+    auto* desktopDup = m_capture->GetDesktopDuplication();
+    if (!desktopDup)
+    {
+        Logger::Error("Cannot start overlay: no desktop duplication available");
+        return;
+    }
+    
+    // Set target window for overlay
+    m_overlay->SetTargetWindow(m_targetWindow);
+    
+    // Start overlay
+    if (m_overlay->StartOverlay(desktopDup))
+    {
+        m_overlayMode = true;
+        m_capturedFrames = 0;
+        Logger::Info("Overlay mode started!");
+    }
+    else
+    {
+        Logger::Error("Failed to start overlay mode");
+    }
+}
+
+void Application::StopOverlayMode()
+{
+    if (m_overlay)
+    {
+        m_overlay->StopOverlay();
+    }
+    m_overlayMode = false;
+    Logger::Info("Overlay mode stopped");
 }
 
 void Application::HandleWindowMessages()

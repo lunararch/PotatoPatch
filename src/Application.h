@@ -7,6 +7,7 @@
 #include "Capture/CaptureEngine.h"
 #include "Processing/Upscaler.h"
 #include "Display/DisplayManager.h"
+#include "Display/OverlayWindow.h"
 #include "UI/ImGuiLayer.h"
 #include "Utils/Timer.h"
 
@@ -25,12 +26,15 @@ private:
     void RenderUI();
     void HandleWindowMessages();
     void EnumerateAllWindows();
+    void StartOverlayMode();
+    void StopOverlayMode();
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static BOOL CALLBACK EnumWindowsCallback(HWND hwnd, LPARAM lParam);
 
 private:
     HWND m_hwnd = nullptr;
+    HINSTANCE m_hInstance = nullptr;
     uint32_t m_windowWidth;
     uint32_t m_windowHeight;
     bool m_running = false;
@@ -41,9 +45,11 @@ private:
     std::unique_ptr<Upscaler> m_upscaler;
     std::unique_ptr<DisplayManager> m_display;
     std::unique_ptr<ImGuiLayer> m_ui;
+    std::unique_ptr<OverlayWindow> m_overlay;
     
     // UI state
     bool m_captureEnabled = false;
+    bool m_overlayMode = false;  // NEW: overlay mode toggle
     bool m_upscaleEnabled = true;
     float m_upscaleFactor = 2.0f;
     HWND m_targetWindow = nullptr;
