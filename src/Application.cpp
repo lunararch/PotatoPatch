@@ -130,22 +130,15 @@ void Application::ProcessFrame()
 
         ID3D12Resource* finalTexture = nullptr;
 
-    // Capture window if enabled
-    if (m_captureEnabled && m_targetWindow)
+    // Capture monitor if enabled and monitor is selected
+    if (m_captureEnabled && m_selectedMonitor >= 0 && m_capture->IsReady())
     {
-        auto capturedTexture = m_capture->CaptureWindow(m_targetWindow);
-
-        if (capturedTexture)
+        if (m_capture->CaptureFrame())
         {
-            // Upscale if enabled
-            if (m_upscaleEnabled)
-            {
-                finalTexture = m_upscaler->Upscale(capturedTexture, m_upscaleFactor);
-            }
-            else
-            {
-                finalTexture = capturedTexture;
-            }
+            m_capturedFrames++;
+            
+            // TODO: Get D3D11 texture and convert to D3D12
+            // For now, finalTexture remains nullptr (no display)
         }
     }
 
@@ -157,8 +150,18 @@ void Application::ProcessFrame()
 
     m_context->EndFrame();
 
-    // Calculate FPS
-    m_fps = 1.0f / m_timer.GetDeltaTime();
+    // Calculate FPS with smoothing
+    float deltaTime = m_timer.GetDeltaTime();
+    m_fps = 1.0f / deltaTime;
+    
+    // Update smoothed FPS every 0.5 seconds for readability
+    m_fpsUpdateTimer += deltaTime;
+    if (m_fpsUpdateTimer >= 0.5f)
+    {
+        m_fpsSmoothed = m_fps;
+        m_fpsUpdateTimer = 0.0f;
+    }
+    
     m_timer.Tick();
     }
     catch (const std::exception& e) {
@@ -175,17 +178,126 @@ void Application::RenderUI()
     // Main control window
     ImGui::Begin("PotatoPatch", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::Text("FPS: %.1f", m_fps);
+    ImGui::Text("FPS (PotatoPatch): %.0f", m_fpsSmoothed);
+    ImGui::Text("Captured Frames: %u", m_capturedFrames);
     ImGui::Separator();
 
-    // Window selection
-    if (ImGui::Button("Select Window to Capture"))
+    // Monitor selection
+    ImGui::Text("Monitor Selection:");
+    auto monitors = m_capture->GetMonitors();
+    
+    if (monitors.empty())
     {
-        // Simple window selection - in production you'd show a list
-        m_targetWindow = FindWindow(nullptr, nullptr); // Gets active window
+        ImGui::TextColored(ImVec4(1, 0, 0, 1), "No monitors available for capture!");
+    }
+    else
+    {
+        for (size_t i = 0; i < monitors.size(); i++)
+        {
+            const auto& mon = monitors[i];
+            char label[256];
+            int width = mon.bounds.right - mon.bounds.left;
+            int height = mon.bounds.bottom - mon.bounds.top;
+            snprintf(label, sizeof(label), "Monitor %d: %dx%d", (int)i, width, height);
+            
+            bool isSelected = (m_selectedMonitor == (int)i);
+            if (ImGui::RadioButton(label, isSelected))
+            {
+                if (m_capture->SelectMonitor((int)i))
+                {
+                    m_selectedMonitor = (int)i;
+                    Logger::Info("Selected monitor %d for capture", (int)i);
+                }
+            }
+        }
+    }
+    
+    ImGui::Separator();
+    
+    // Window selection helper
+    if (ImGui::Button("List All Windows"))
+    {
+        EnumerateAllWindows();
+        m_showWindowList = true;
+    }
+    
+    if (m_showWindowList && !m_availableWindows.empty())
+    {
+        ImGui::SameLine();
+        if (ImGui::Button("Close List"))
+        {
+            m_showWindowList = false;
+        }
+        
+        ImGui::BeginChild("WindowList", ImVec2(0, 200), true);
+        ImGui::Text("Click a window to select it:");
+        ImGui::Separator();
+        
+        for (const auto& window : m_availableWindows)
+        {
+            char titleUtf8[256];
+            WideCharToMultiByte(CP_UTF8, 0, window.title.c_str(), -1, titleUtf8, sizeof(titleUtf8), nullptr, nullptr);
+            
+            if (ImGui::Selectable(titleUtf8))
+            {
+                m_targetWindow = window.hwnd;
+                m_targetWindowTitle = window.title;
+                
+                RECT rect;
+                GetClientRect(m_targetWindow, &rect);
+                Logger::Info("Selected window '%s' (%dx%d)", titleUtf8, rect.right - rect.left, rect.bottom - rect.top);
+                
+                // Auto-select the monitor containing this window
+                int monitorIndex = m_capture->GetMonitorForWindow(m_targetWindow);
+                if (monitorIndex >= 0)
+                {
+                    if (m_capture->SelectMonitor(monitorIndex))
+                    {
+                        m_selectedMonitor = monitorIndex;
+                        Logger::Info("Auto-selected monitor %d for window", monitorIndex);
+                    }
+                }
+                
+                m_showWindowList = false;
+            }
+        }
+        ImGui::EndChild();
+    }
+    
+    ImGui::Separator();
+    
+    // Manual search (in case window list doesn't work)
+    static char windowTitleBuffer[256] = "";
+    ImGui::InputText("Or search by title", windowTitleBuffer, sizeof(windowTitleBuffer));
+    
+    if (ImGui::Button("Find by Title"))
+    {
+        // Convert to wide string and find window
+        int len = MultiByteToWideChar(CP_UTF8, 0, windowTitleBuffer, -1, nullptr, 0);
+        m_targetWindowTitle.resize(len);
+        MultiByteToWideChar(CP_UTF8, 0, windowTitleBuffer, -1, &m_targetWindowTitle[0], len);
+        
+        m_targetWindow = FindWindowW(nullptr, m_targetWindowTitle.c_str());
         if (m_targetWindow)
         {
-            Logger::Info("Selected window for capture");
+            RECT rect;
+            GetClientRect(m_targetWindow, &rect);
+            Logger::Info("Found window '%s' (%dx%d)", windowTitleBuffer, rect.right - rect.left, rect.bottom - rect.top);
+            
+            // Auto-select the monitor containing this window
+            int monitorIndex = m_capture->GetMonitorForWindow(m_targetWindow);
+            if (monitorIndex >= 0)
+            {
+                if (m_capture->SelectMonitor(monitorIndex))
+                {
+                    m_selectedMonitor = monitorIndex;
+                    Logger::Info("Auto-selected monitor %d for window", monitorIndex);
+                }
+            }
+        }
+        else
+        {
+            Logger::Error("Could not find window with title '%s'", windowTitleBuffer);
         }
     }
 
@@ -197,9 +309,28 @@ void Application::RenderUI()
     ImGui::SliderFloat("Upscale Factor", &m_upscaleFactor, 1.0f, 4.0f);
 
     ImGui::Separator();
+    
+    // Status information
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 1.0f, 0.5f, 1.0f));
+    ImGui::Text("Desktop Duplication capture active");
+    ImGui::PopStyleColor();
+
+    ImGui::Separator();
 
     ImGui::Text("Capture: %s", m_captureEnabled ? "Active" : "Inactive");
-    ImGui::Text("Target Window: %s", m_targetWindow ? "Selected" : "None");
+    ImGui::Text("Selected Monitor: %d", m_selectedMonitor);
+    
+    if (m_capture->IsReady())
+    {
+        ImGui::Text("Capture Size: %ux%u", m_capture->GetWidth(), m_capture->GetHeight());
+    }
+    
+    if (m_targetWindow && IsWindow(m_targetWindow))
+    {
+        char title[256];
+        WideCharToMultiByte(CP_UTF8, 0, m_targetWindowTitle.c_str(), -1, title, sizeof(title), nullptr, nullptr);
+        ImGui::Text("Target Window: %s", title);
+    }
 
     ImGui::End();
 
@@ -225,6 +356,33 @@ void Application::HandleWindowMessages()
             m_running = false;
         }
     }
+}
+
+BOOL CALLBACK Application::EnumWindowsCallback(HWND hwnd, LPARAM lParam)
+{
+    Application* app = reinterpret_cast<Application*>(lParam);
+    
+    if (!IsWindowVisible(hwnd))
+        return TRUE;
+    
+    wchar_t title[256];
+    GetWindowTextW(hwnd, title, sizeof(title) / sizeof(wchar_t));
+    
+    if (wcslen(title) > 0)
+    {
+        WindowInfo info;
+        info.title = title;
+        info.hwnd = hwnd;
+        app->m_availableWindows.push_back(info);
+    }
+    
+    return TRUE;
+}
+
+void Application::EnumerateAllWindows()
+{
+    m_availableWindows.clear();
+    EnumWindows(EnumWindowsCallback, reinterpret_cast<LPARAM>(this));
 }
 
 LRESULT CALLBACK Application::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)

@@ -342,6 +342,8 @@ ID3D12Resource* D3D12Context::CreateTexture2D(uint32_t width, uint32_t height, D
     desc.MipLevels = 1;
     desc.Format = format;
     desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     desc.Flags = flags;
 
     D3D12_HEAP_PROPERTIES heapProps = {};
@@ -359,7 +361,7 @@ ID3D12Resource* D3D12Context::CreateTexture2D(uint32_t width, uint32_t height, D
 
     if (FAILED(hr))
     {
-        Logger::Error("Failed to create texture 2D");
+        Logger::Error("Failed to create texture 2D (%dx%d, format %d): HRESULT 0x%08X", width, height, format, hr);
         return nullptr;
     }
 

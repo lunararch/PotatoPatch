@@ -64,6 +64,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
         d3d12.lib
+        d3d11.lib
         dxgi.lib
         d3dcompiler.lib
         dxguid.lib

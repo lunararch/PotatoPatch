@@ -24,8 +24,10 @@ private:
     void ProcessFrame();
     void RenderUI();
     void HandleWindowMessages();
+    void EnumerateAllWindows();
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static BOOL CALLBACK EnumWindowsCallback(HWND hwnd, LPARAM lParam);
 
 private:
     HWND m_hwnd = nullptr;
@@ -45,8 +47,23 @@ private:
     bool m_upscaleEnabled = true;
     float m_upscaleFactor = 2.0f;
     HWND m_targetWindow = nullptr;
+    int m_selectedMonitor = -1;
     
     // Performance tracking
     Timer m_timer;
     float m_fps = 0.0f;
+    float m_fpsSmoothed = 0.0f;
+    float m_fpsUpdateTimer = 0.0f;
+    std::wstring m_targetWindowTitle;
+    
+    // Frame counter for captured frames
+    uint32_t m_capturedFrames = 0;
+    
+    // Window enumeration
+    struct WindowInfo {
+        std::wstring title;
+        HWND hwnd;
+    };
+    std::vector<WindowInfo> m_availableWindows;
+    bool m_showWindowList = false;
 };
