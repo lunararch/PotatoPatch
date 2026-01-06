@@ -6,6 +6,7 @@
 #include "Core/D3D12Context.h"
 #include "Capture/CaptureEngine.h"
 #include "Processing/Upscaler.h"
+#include "Processing/D3D11Upscaler.h"
 #include "Display/DisplayManager.h"
 #include "Display/OverlayWindow.h"
 #include "UI/ImGuiLayer.h"
@@ -54,6 +55,12 @@ private:
     float m_upscaleFactor = 2.0f;
     HWND m_targetWindow = nullptr;
     int m_selectedMonitor = -1;
+    
+    // Overlay upscaling settings
+    bool m_overlayUpscaleEnabled = false;  // Disabled by default for performance
+    UpscaleMethod m_overlayUpscaleMethod = UpscaleMethod::Bilinear;  // Bilinear is faster
+    float m_overlayUpscaleFactor = 1.0f;  // 1.0 = no upscaling
+    float m_overlaySharpness = 0.5f;
     
     // Performance tracking
     Timer m_timer;

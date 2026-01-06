@@ -18,6 +18,7 @@ set(SOURCES
         src/Processing/Upscaler.cpp
         src/Processing/FrameGenerator.cpp
         src/Processing/GPUProcessor.cpp
+        src/Processing/D3D11Upscaler.cpp
         src/Display/DisplayManager.cpp
         src/Display/OverlayRenderer.cpp
         src/Display/OverlayWindow.cpp
@@ -36,6 +37,7 @@ set(HEADERS
         src/Processing/Upscaler.h
         src/Processing/FrameGenerator.h
         src/Processing/GPUProcessor.h
+        src/Processing/D3D11Upscaler.h
         src/Display/DisplayManager.h
         src/Display/OverlayRenderer.h
         src/Display/OverlayWindow.h

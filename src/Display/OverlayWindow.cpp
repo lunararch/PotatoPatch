@@ -52,9 +52,9 @@ bool OverlayWindow::CreateOverlayWindow(HINSTANCE hInstance)
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = OverlayWndProc;
     wc.hInstance = hInstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hCursor = nullptr;  // No cursor for overlay - let the underlying window show it
     wc.lpszClassName = L"PotatoPatchOverlay";
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wc.hbrBackground = nullptr;  // No background - we handle all painting
     
     if (!RegisterClassExW(&wc))
     {
@@ -68,11 +68,12 @@ bool OverlayWindow::CreateOverlayWindow(HINSTANCE hInstance)
     
     // Create the overlay window - starts hidden
     // WS_EX_TOPMOST - Always on top
-    // WS_EX_LAYERED - Allows transparency (optional)
+    // WS_EX_LAYERED - Required for proper transparency
+    // WS_EX_TRANSPARENT - Click-through (critical for mouse input to reach game)
     // WS_EX_TOOLWINDOW - Doesn't show in taskbar
     // WS_EX_NOACTIVATE - Doesn't steal focus from game
     m_overlayHwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         L"PotatoPatchOverlay",
         L"PotatoPatch Overlay",
         WS_POPUP,  // Borderless
@@ -109,6 +110,15 @@ bool OverlayWindow::CreateOverlayWindow(HINSTANCE hInstance)
     {
         Logger::Info("Overlay window excluded from screen capture");
     }
+    
+    // Set layered window to be fully opaque but still click-through due to WS_EX_TRANSPARENT
+    // LWA_ALPHA with 255 = fully visible, but WS_EX_TRANSPARENT handles click-through
+    SetLayeredWindowAttributes(m_overlayHwnd, 0, 255, LWA_ALPHA);
+    
+    // CRITICAL: Hide cursor over this window to prevent double cursor
+    // Desktop Duplication already captures the cursor in the desktop image,
+    // so we don't want Windows to draw another cursor on top of our overlay
+    // We'll handle this in WM_SETCURSOR by setting the cursor to NULL
     
     // Store this pointer
     SetWindowLongPtr(m_overlayHwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
@@ -167,6 +177,12 @@ bool OverlayWindow::StartOverlay(DesktopDuplication* capture)
         Logger::Error("Failed to initialize overlay renderer");
         return false;
     }
+    
+    // Apply cached upscaling settings to the renderer
+    m_renderer->SetUpscalingEnabled(m_upscaleEnabled);
+    m_renderer->SetUpscaleMethod(m_upscaleMethod);
+    m_renderer->SetUpscaleFactor(m_upscaleFactor);
+    m_renderer->SetSharpness(m_sharpness);
     
     // Show the overlay window
     ShowWindow(m_overlayHwnd, SW_SHOWNOACTIVATE);
@@ -227,23 +243,42 @@ void OverlayWindow::PositionOverlayOverTarget()
     if (!m_overlayHwnd || !m_targetWindow)
         return;
     
-    GetWindowRect(m_targetWindow, &m_targetRect);
+    // Get window rect (includes borders for windowed mode)
+    RECT windowRect;
+    GetWindowRect(m_targetWindow, &windowRect);
     
-    int width = m_targetRect.right - m_targetRect.left;
-    int height = m_targetRect.bottom - m_targetRect.top;
+    // Get client rect (actual drawable area)
+    RECT clientRect;
+    GetClientRect(m_targetWindow, &clientRect);
     
-    // Position overlay exactly over target window
+    // Calculate border sizes (difference between window and client)
+    POINT clientTopLeft = { 0, 0 };
+    ClientToScreen(m_targetWindow, &clientTopLeft);
+    
+    // For fullscreen/borderless windows, client and window coords should match
+    // For windowed mode, we need to account for borders
+    int borderLeft = clientTopLeft.x - windowRect.left;
+    int borderTop = clientTopLeft.y - windowRect.top;
+    
+    // Calculate actual client area dimensions
+    int width = clientRect.right - clientRect.left;
+    int height = clientRect.bottom - clientRect.top;
+    
+    // Store the target rect for change detection
+    m_targetRect = windowRect;
+    
+    // Position overlay exactly over the CLIENT area (where the game actually renders)
     SetWindowPos(
         m_overlayHwnd,
         HWND_TOPMOST,
-        m_targetRect.left,
-        m_targetRect.top,
+        clientTopLeft.x,  // Use screen coordinates of client area
+        clientTopLeft.y,
         width,
         height,
         SWP_NOACTIVATE | SWP_SHOWWINDOW
     );
     
-    // Resize renderer if needed
+    // Resize renderer to match client area
     if (m_renderer)
     {
         m_renderer->Resize(width, height);
@@ -262,8 +297,9 @@ void OverlayWindow::ProcessFrame()
     // SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE), so we don't need to hide it.
     // This API properly excludes our window from the captured desktop image.
     
-    // Capture frame (try to get new frame)
-    bool hasNewFrame = m_capture->CaptureFrame(8);  // Short timeout for low latency
+    // Capture frame with minimal timeout for high performance (0ms = return immediately)
+    // Desktop Duplication will return the latest frame or DXGI_ERROR_WAIT_TIMEOUT if no new frame
+    bool hasNewFrame = m_capture->CaptureFrame(0);  // 0ms timeout = non-blocking
     
     ID3D11Texture2D* capturedFrame = nullptr;
     if (hasNewFrame)
@@ -276,7 +312,8 @@ void OverlayWindow::ProcessFrame()
     }
     else
     {
-        // No new frame, but still get the last captured frame to keep displaying
+        // No new frame available - reuse the last captured frame
+        // This allows us to maintain high overlay FPS even if desktop updates slowly
         capturedFrame = m_capture->GetCapturedTexture();
     }
     
@@ -319,11 +356,87 @@ LRESULT CALLBACK OverlayWindow::OverlayWndProc(HWND hwnd, UINT msg, WPARAM wPara
             overlay->m_renderer->Resize(width, height);
         }
         return 0;
-        
-    // Pass through mouse/keyboard to the window below
+    
+    // Critical: Always return HTTRANSPARENT for all hit testing
+    // This ensures ALL mouse input passes through to the window below
     case WM_NCHITTEST:
-        return HTTRANSPARENT;  // Click-through
+        return HTTRANSPARENT;
+    
+    // CRITICAL: Hide cursor over this window to prevent double cursor
+    // Desktop Duplication captures cursor in the image, so we don't want Windows
+    // to draw another cursor on top. Set cursor to NULL (invisible).\n    case WM_SETCURSOR:
+        SetCursor(NULL);  // Hide the cursor completely
+        return TRUE;  // Prevent default cursor handling
+        
+    // Ignore all mouse messages - they should go to the game
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+        return 0;  // Swallow but don't process
     }
     
     return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+// Upscaling control methods
+void OverlayWindow::SetUpscalingEnabled(bool enabled)
+{
+    m_upscaleEnabled = enabled;
+    if (m_renderer)
+    {
+        m_renderer->SetUpscalingEnabled(enabled);
+    }
+}
+
+bool OverlayWindow::IsUpscalingEnabled() const
+{
+    return m_upscaleEnabled;
+}
+
+void OverlayWindow::SetUpscaleMethod(UpscaleMethod method)
+{
+    m_upscaleMethod = method;
+    if (m_renderer)
+    {
+        m_renderer->SetUpscaleMethod(method);
+    }
+}
+
+UpscaleMethod OverlayWindow::GetUpscaleMethod() const
+{
+    return m_upscaleMethod;
+}
+
+void OverlayWindow::SetUpscaleFactor(float factor)
+{
+    m_upscaleFactor = factor;
+    if (m_renderer)
+    {
+        m_renderer->SetUpscaleFactor(factor);
+    }
+}
+
+float OverlayWindow::GetUpscaleFactor() const
+{
+    return m_upscaleFactor;
+}
+
+void OverlayWindow::SetSharpness(float sharpness)
+{
+    m_sharpness = sharpness;
+    if (m_renderer)
+    {
+        m_renderer->SetSharpness(sharpness);
+    }
+}
+
+float OverlayWindow::GetSharpness() const
+{
+    return m_sharpness;
 }

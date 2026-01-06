@@ -37,6 +37,19 @@ public:
     // Get stats
     uint32_t GetFramesCaptured() const { return m_framesCaptured; }
     float GetOverlayFPS() const { return m_overlayFPS; }
+    
+    // Upscaling controls - forwarded to OverlayRenderer
+    void SetUpscalingEnabled(bool enabled);
+    bool IsUpscalingEnabled() const;
+    
+    void SetUpscaleMethod(UpscaleMethod method);
+    UpscaleMethod GetUpscaleMethod() const;
+    
+    void SetUpscaleFactor(float factor);
+    float GetUpscaleFactor() const;
+    
+    void SetSharpness(float sharpness);
+    float GetSharpness() const;
 
 private:
     static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -52,6 +65,12 @@ private:
     
     bool m_overlayActive = false;
     uint32_t m_framesCaptured = 0;
+    
+    // Upscaling settings (cached for when renderer isn't active)
+    bool m_upscaleEnabled = false;
+    UpscaleMethod m_upscaleMethod = UpscaleMethod::FSR;
+    float m_upscaleFactor = 1.5f;
+    float m_sharpness = 0.5f;
     
     // FPS tracking
     LARGE_INTEGER m_lastFrameTime = {};

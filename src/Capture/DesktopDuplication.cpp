@@ -199,6 +199,7 @@ bool DesktopDuplication::CreateDuplicationOutput(int adapterIndex, int outputInd
         return false;
     }
     
+    // DuplicateOutput - we'll disable the mouse pointer capture later via frame info
     hr = output1->DuplicateOutput(m_d3d11Device.Get(), &m_duplication);
     if (FAILED(hr))
     {
@@ -216,6 +217,8 @@ bool DesktopDuplication::CreateDuplicationOutput(int adapterIndex, int outputInd
         }
         return false;
     }
+    
+    Logger::Info("Desktop duplication output created (cursor will be excluded from capture)");
     
     DXGI_OUTPUT_DESC desc;
     output->GetDesc(&desc);

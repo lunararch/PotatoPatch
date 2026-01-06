@@ -4,6 +4,8 @@
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <memory>
+#include "../Processing/D3D11Upscaler.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -19,6 +21,7 @@ public:
     void Shutdown();
 
     // Render a captured frame to the overlay window
+    // If upscaling is enabled, the frame will be upscaled to the output size
     void RenderFrame(ID3D11Texture2D* capturedFrame);
     
     // Present the frame
@@ -26,6 +29,19 @@ public:
     
     // Handle resize
     void Resize(uint32_t width, uint32_t height);
+
+    // Upscaling settings
+    void SetUpscalingEnabled(bool enabled) { m_upscaleEnabled = enabled; }
+    bool IsUpscalingEnabled() const { return m_upscaleEnabled; }
+    
+    void SetUpscaleMethod(UpscaleMethod method) { m_upscaleMethod = method; }
+    UpscaleMethod GetUpscaleMethod() const { return m_upscaleMethod; }
+    
+    void SetUpscaleFactor(float factor) { m_upscaleFactor = factor; }
+    float GetUpscaleFactor() const { return m_upscaleFactor; }
+    
+    void SetSharpness(float sharpness);
+    float GetSharpness() const;
 
 private:
     bool CreateSwapChain(HWND hwnd);
@@ -40,6 +56,13 @@ private:
     ComPtr<ID3D11RenderTargetView> m_renderTargetView;
     ComPtr<ID3D11Texture2D> m_backBuffer;
     
+    // Upscaler
+    std::unique_ptr<D3D11Upscaler> m_upscaler;
+    bool m_upscaleEnabled = false;
+    UpscaleMethod m_upscaleMethod = UpscaleMethod::FSR;
+    float m_upscaleFactor = 1.5f;
+    
     uint32_t m_width = 0;
     uint32_t m_height = 0;
+    bool m_tearingSupported = false;
 };

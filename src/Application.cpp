@@ -328,6 +328,40 @@ void Application::RenderUI()
                 ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "Select a window first (use 'List All Windows')");
             }
             
+            // Upscaling settings (configurable before starting overlay)
+            ImGui::Checkbox("Enable Overlay Upscaling", &m_overlayUpscaleEnabled);
+            
+            if (m_overlayUpscaleEnabled)
+            {
+                ImGui::Indent();
+                
+                // Upscale method selection
+                const char* methodNames[] = { "Bilinear", "FSR (Edge-Adaptive)" };
+                int currentMethod = static_cast<int>(m_overlayUpscaleMethod);
+                if (ImGui::Combo("Upscale Method", &currentMethod, methodNames, 2))
+                {
+                    m_overlayUpscaleMethod = static_cast<UpscaleMethod>(currentMethod);
+                    if (m_overlay) m_overlay->SetUpscaleMethod(m_overlayUpscaleMethod);
+                }
+                
+                // Upscale factor
+                if (ImGui::SliderFloat("Upscale Factor", &m_overlayUpscaleFactor, 1.0f, 4.0f, "%.2fx"))
+                {
+                    if (m_overlay) m_overlay->SetUpscaleFactor(m_overlayUpscaleFactor);
+                }
+                
+                // Sharpness (for FSR)
+                if (m_overlayUpscaleMethod == UpscaleMethod::FSR)
+                {
+                    if (ImGui::SliderFloat("Sharpness", &m_overlaySharpness, 0.0f, 1.0f, "%.2f"))
+                    {
+                        if (m_overlay) m_overlay->SetSharpness(m_overlaySharpness);
+                    }
+                }
+                
+                ImGui::Unindent();
+            }
+            
             ImGui::BeginDisabled(!canStart);
             if (ImGui::Button("START OVERLAY", ImVec2(200, 40)))
             {
@@ -349,6 +383,42 @@ void Application::RenderUI()
             ImGui::Text("Overlay FPS: %.0f", m_overlay ? m_overlay->GetOverlayFPS() : 0.0f);
             ImGui::Text("Frames Rendered: %u", m_capturedFrames);
             
+            // Live upscaling controls while overlay is active
+            ImGui::Separator();
+            ImGui::Text("Live Upscaling Controls:");
+            
+            bool upscaleEnabled = m_overlay ? m_overlay->IsUpscalingEnabled() : false;
+            if (ImGui::Checkbox("Upscaling Enabled", &upscaleEnabled))
+            {
+                if (m_overlay) m_overlay->SetUpscalingEnabled(upscaleEnabled);
+                m_overlayUpscaleEnabled = upscaleEnabled;
+            }
+            
+            if (upscaleEnabled)
+            {
+                const char* methodNames[] = { "Bilinear", "FSR (Edge-Adaptive)" };
+                int currentMethod = static_cast<int>(m_overlayUpscaleMethod);
+                if (ImGui::Combo("Method", &currentMethod, methodNames, 2))
+                {
+                    m_overlayUpscaleMethod = static_cast<UpscaleMethod>(currentMethod);
+                    if (m_overlay) m_overlay->SetUpscaleMethod(m_overlayUpscaleMethod);
+                }
+                
+                if (ImGui::SliderFloat("Factor", &m_overlayUpscaleFactor, 1.0f, 4.0f, "%.2fx"))
+                {
+                    if (m_overlay) m_overlay->SetUpscaleFactor(m_overlayUpscaleFactor);
+                }
+                
+                if (m_overlayUpscaleMethod == UpscaleMethod::FSR)
+                {
+                    if (ImGui::SliderFloat("Sharpness", &m_overlaySharpness, 0.0f, 1.0f, "%.2f"))
+                    {
+                        if (m_overlay) m_overlay->SetSharpness(m_overlaySharpness);
+                    }
+                }
+            }
+            
+            ImGui::Separator();
             ImGui::TextColored(ImVec4(0, 1, 0, 1), "Overlay is ACTIVE!");
             ImGui::TextWrapped("Press ESC or click 'STOP OVERLAY' to stop.");
         }
@@ -365,8 +435,8 @@ void Application::RenderUI()
 
     ImGui::Separator();
 
-    ImGui::Checkbox("Enable Upscaling", &m_upscaleEnabled);
-    ImGui::SliderFloat("Upscale Factor", &m_upscaleFactor, 1.0f, 4.0f);
+    ImGui::Checkbox("Enable Upscaling (Legacy)", &m_upscaleEnabled);
+    ImGui::SliderFloat("Upscale Factor (Legacy)", &m_upscaleFactor, 1.0f, 4.0f);
 
     ImGui::Separator();
     
@@ -425,6 +495,12 @@ void Application::StartOverlayMode()
         return;
     }
     
+    // Apply upscaling settings before starting
+    m_overlay->SetUpscalingEnabled(m_overlayUpscaleEnabled);
+    m_overlay->SetUpscaleMethod(m_overlayUpscaleMethod);
+    m_overlay->SetUpscaleFactor(m_overlayUpscaleFactor);
+    m_overlay->SetSharpness(m_overlaySharpness);
+    
     // Set target window for overlay
     m_overlay->SetTargetWindow(m_targetWindow);
     
@@ -433,7 +509,10 @@ void Application::StartOverlayMode()
     {
         m_overlayMode = true;
         m_capturedFrames = 0;
-        Logger::Info("Overlay mode started!");
+        Logger::Info("Overlay mode started with upscaling: %s (%.2fx, method=%d)", 
+            m_overlayUpscaleEnabled ? "enabled" : "disabled",
+            m_overlayUpscaleFactor,
+            static_cast<int>(m_overlayUpscaleMethod));
     }
     else
     {
